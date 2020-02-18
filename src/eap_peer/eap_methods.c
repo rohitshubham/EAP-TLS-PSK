@@ -334,7 +334,7 @@ int eap_peer_method_register(struct eap_method *method)
 		}
 		last = m;
 	}
-
+	wpa_printf(MSG_INFO, method->name);
 	if (last)
 		last->next = method;
 	else
