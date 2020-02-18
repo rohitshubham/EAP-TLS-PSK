@@ -47,6 +47,12 @@ int eap_register_methods(void)
 #endif /* CONFIG_HS20 */
 #endif /* EAP_TLS */
 
+#ifdef EAP_TLS_PSK
+	if (ret == 0)
+		ret = eap_peer_tls_psk_register();
+#endif /* EAP_TLS_PSK */
+
+
 #ifdef EAP_MSCHAPv2
 	if (ret == 0)
 		ret = eap_peer_mschapv2_register();
