@@ -451,6 +451,20 @@ CFLAGS += -DCONFIG_ERP
 NEED_HMAC_SHA256_KDF=y
 endif
 
+
+ifdef CONFIG_EAP_TLS_PSK
+ifeq ($(CONFIG_EAP_TLS_PSK), dyn)
+CFLAGS += -DEAP_TLS_PSK_DYNAMIC
+EAPDYN += ../src/eap_peer/eap_tls_psk.so
+else
+CFLAGS += -DEAP_TLS_PSK
+OBJS += ../src/eap_peer/eap_tls_psk.o
+endif
+TLS_FUNCS=y
+CONFIG_IEEE8021X_EAPOL=y
+endif
+
+
 ifdef CONFIG_EAP_TLS
 # EAP-TLS
 ifeq ($(CONFIG_EAP_TLS), dyn)
