@@ -6,9 +6,44 @@
 #include "crypto/tls.h"
 
 
+struct eap_tls_psk_data {
+    struct eap_ssl_data ssl;
+	enum { START, CONTINUE, SUCCESS, FAILURE } state;
+	int established;
+    u8 *psk;
+	u8 eap_type;
+};
+
+static void eap_tls_reset(struct eap_sm *sm, void *priv)
+{
+	struct eap_tls_psk_data *data = priv;
+	if (data == NULL)
+		return;
+	eap_server_tls_ssl_deinit(sm, &data->ssl);
+	os_free(data);
+}
+
+
 static void * eap_tls_psk_init(struct eap_sm *sm)
 {
-	
+	struct eap_tls_psk_data *data;
+
+	data = os_zalloc(sizeof(*data));
+
+	if (data == NULL)
+		return NULL;
+	data->state = START;
+
+	if (eap_server_tls_ssl_init(sm, &data->ssl, 1, EAP_TYPE_TLS)) {
+		wpa_printf(MSG_INFO, "EAP-TLS-PSK: Failed to initialize SSL.");
+		eap_tls_reset(sm, data);
+		return NULL;
+	}
+
+	data->eap_type = EAP_TYPE_TLS;
+	wpa_printf(MSG_INFO, "EAP-TLS-PSK: This is working now!.");
+	return data;
+
 }
 
 static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
