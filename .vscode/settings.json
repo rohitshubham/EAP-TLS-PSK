@@ -5,6 +5,7 @@
         "optional": "c",
         "limits": "c",
         "memory": "c",
-        "new": "c"
+        "new": "c",
+        "eap_tls_common.h": "c"
     }
 }
