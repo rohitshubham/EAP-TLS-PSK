@@ -21,9 +21,12 @@ static void * eap_tls_psk_init(struct eap_sm *sm){
     struct eap_tls_psk_data *data;
     size_t psk_len;
 
+    data = os_zalloc(sizeof(*data));
+   	if (data == NULL)
+		return NULL;
+
+
     data->eap_type = EAP_TYPE_TLS_PSK;
-    wpa_hexdump_key(MSG_DEBUG, "EAP-TLS-PSK: ", data->psk, EAP_TLS_PSK_SHARED_KEY_LEN);
-    wpa_printf(MSG_INFO, psk_len);
     data->psk = eap_get_config_password(sm, &psk_len);
 
     if (!data->psk || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
@@ -31,16 +34,17 @@ static void * eap_tls_psk_init(struct eap_sm *sm){
 			   "configured");
 		return NULL;
 	}
-    data = os_zalloc(sizeof(*data));
-    wpa_hexdump_key(MSG_DEBUG, "EAP-TLS-PSK: ", data->psk, EAP_TLS_PSK_SHARED_KEY_LEN);
-
+    
+    return data;
     
 }
 
 
 
 static void * eap_tls_psk_deinit(struct eap_sm * sm, void * priv){
-
+	struct eap_tls_psk_data *data = priv;
+    eap_peer_tls_ssl_deinit(sm, &data->ssl);
+	bin_clear_free(data, sizeof(*data));
 }
 
 
@@ -85,7 +89,6 @@ int eap_peer_tls_psk_register(void){
         return -1;
     }
 
-    //Define the EAP TLS PSK intialization methods here?
     eap->init = eap_tls_psk_init;
     eap->deinit = eap_tls_psk_deinit;
     eap->process = eap_tls_psk_process;
