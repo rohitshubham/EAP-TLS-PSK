@@ -33,10 +33,8 @@ static void * eap_tls_psk_init(struct eap_sm *sm){
 		wpa_printf(MSG_INFO, "EAP-TLS-PSK: 16-octet pre-shared key not "
 			   "configured");
 		return NULL;
-	}
-    
-    return data;
-    
+	}    
+    return data;    
 }
 
 
@@ -48,7 +46,21 @@ static void * eap_tls_psk_deinit(struct eap_sm * sm, void * priv){
 }
 
 
-static void * eap_tls_psk_process(struct eap_sm * sm, void * priv){
+static void * eap_tls_psk_process(struct eap_sm * sm, void * priv, struct eap_method_ret *ret, const struct wpabuf *reqData){
+
+    struct eap_tls_psk_data *data = priv;
+    const u8 *pos;
+    u8 flags;
+    size_t len;
+    pos = eap_hdr_validate(EAP_VENDOR_IETF, EAP_TYPE_TLS_PSK, reqData, &len);
+
+    if (pos == NULL) {
+		ret->ignore = TRUE;
+		return NULL;
+	}
+    wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are here now ");
+    wpa_printf(MSG_DEBUG, "EAP_TLS_PSK: %d ", len);
+    //pos = eap_peer_tls_process_init(sm, &data->ssl, data->eap_type, ret, reqData, &left, &flags);
 
 }
 
@@ -101,4 +113,5 @@ int eap_peer_tls_psk_register(void){
     eap->deinit_for_reauth = eap_tls_psk_deinit_for_reauth;
 
     return eap_peer_method_register(eap);
+
 }
