@@ -1,9 +1,15 @@
+#include "includes.h"
+
 #include <stdio.h>
 #include "common.h"
 #include "eap_i.h"
 #include "eap_tls_common.h"
+#include "crypto/tls.h"
+#include "eap_config.h"
+
 #include <openssl/ssl.h>
-#include<tls_openssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
 
 #define EAP_TLS_PSK_SHARED_KEY_LEN 16
 
@@ -14,6 +20,131 @@ struct eap_tls_psk_data {
     u8 eap_type;
 };
 
+static const char * openssl_content_type(int content_type)
+{
+	switch (content_type) {
+	case 20:
+		return "change cipher spec";
+	case 21:
+		return "alert";
+	case 22:
+		return "handshake";
+	case 23:
+		return "application data";
+	case 24:
+		return "heartbeat";
+	case 256:
+		return "TLS header info"; /* pseudo content type */
+	case 257:
+		return "inner content type"; /* pseudo content type */
+	default:
+		return "?";
+	}
+}
+
+static const char * openssl_handshake_type(int content_type, const u8 *buf,
+					   size_t len)
+{
+	if (content_type == 257 && buf && len == 1)
+		return openssl_content_type(buf[0]);
+	if (content_type != 22 || !buf || len == 0)
+		return "";
+	switch (buf[0]) {
+	case 0:
+		return "hello request";
+	case 1:
+		return "client hello";
+	case 2:
+		return "server hello";
+	case 3:
+		return "hello verify request";
+	case 4:
+		return "new session ticket";
+	case 5:
+		return "end of early data";
+	case 6:
+		return "hello retry request";
+	case 8:
+		return "encrypted extensions";
+	case 11:
+		return "certificate";
+	case 12:
+		return "server key exchange";
+	case 13:
+		return "certificate request";
+	case 14:
+		return "server hello done";
+	case 15:
+		return "certificate verify";
+	case 16:
+		return "client key exchange";
+	case 20:
+		return "finished";
+	case 21:
+		return "certificate url";
+	case 22:
+		return "certificate status";
+	case 23:
+		return "supplemental data";
+	case 24:
+		return "key update";
+	case 254:
+		return "message hash";
+	default:
+		return "?";
+	}
+}
+
+static void tls_msg_cb(int write_p, int version, int content_type,
+		       const void *buf, size_t len, SSL *ssl, void *arg)
+{
+	struct tls_connection *conn = arg;
+	const u8 *pos = buf;
+
+	if (write_p == 2) {
+		wpa_printf(MSG_DEBUG,
+			   "OpenSSL: session ver=0x%x content_type=%d",
+			   version, content_type);
+		wpa_hexdump_key(MSG_MSGDUMP, "OpenSSL: Data", buf, len);
+		return;
+	}
+
+	wpa_printf(MSG_DEBUG, "OpenSSL: %s ver=0x%x content_type=%d (%s/%s)",
+		   write_p ? "TX" : "RX", version, content_type,
+		   openssl_content_type(content_type),
+		   openssl_handshake_type(content_type, buf, len));
+	wpa_hexdump_key(MSG_MSGDUMP, "OpenSSL: Message", buf, len);
+	if (content_type == 24 && len >= 3 && pos[0] == 1) {
+		size_t payload_len = WPA_GET_BE16(pos + 1);
+	}
+
+#ifdef CONFIG_SUITEB
+	/*
+	 * Need to parse these handshake messages to be able to check DH prime
+	 * length since OpenSSL does not expose the new cipher suite and DH
+	 * parameters during handshake (e.g., for cert_cb() callback).
+	 */
+	if (content_type == 22 && pos && len > 0 && pos[0] == 2)
+		check_server_hello(conn, pos + 1, pos + len);
+	if (content_type == 22 && pos && len > 0 && pos[0] == 12)
+		check_server_key_exchange(ssl, conn, pos + 1, pos + len);
+#endif /* CONFIG_SUITEB */
+}
+
+
+
+static void tls_show_errors(int level, const char *func, const char *txt)
+{
+	unsigned long err;
+
+	wpa_printf(level, "OpenSSL: %s - %s %s",
+		   func, txt, ERR_error_string(ERR_get_error(), NULL));
+
+	while ((err = ERR_get_error())) {
+		wpa_printf(MSG_INFO, "OpenSSL: pending error: %s",
+			   ERR_error_string(err, NULL));
+	}
+}
 
 /**
  * eap_tls_psk_init :  initialize the eap tls-psk method 
@@ -63,8 +194,8 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 
     struct eap_tls_psk_data *data = priv;
     const u8 *pos;
-    u8 flags;
-    size_t len;
+    u8 flags, id;
+    size_t len, length;
     struct wpabuf *resp = NULL;
     SSL *con = NULL;
     struct wpabuf *out_data;
@@ -78,6 +209,7 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 
     
     con = SSL_new(data->ctx);
+    SSL_set_msg_callback(con, tls_msg_cb);
     BIO *ssl_in, *ssl_out;
 
     ssl_in = BIO_new(BIO_s_mem());
@@ -100,7 +232,7 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 	}
 
     SSL_set_bio(con, ssl_in, ssl_out);
-
+    //SSL_set_connect_state(con);
     int res = SSL_connect(con);
 
     if (res != 1) {
@@ -115,6 +247,7 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 			tls_show_errors(MSG_INFO, __func__, "SSL_connect");
 			//conn->failed++;
 		}
+
 	}
 
     res = BIO_ctrl_pending(ssl_out);
@@ -146,12 +279,16 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 	}
 	wpabuf_put(out_data, res);
 
-    wpabuf_len(out_data);
-
+    length = wpabuf_len(out_data);
+    id = eap_get_id(reqData);
 
 
     wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are here now ");
-    resp = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_TLS_PSK, );
+    resp = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_TLS_PSK, wpabuf_len(out_data), EAP_CODE_RESPONSE, id);
+
+    wpabuf_put_data(resp, out_data, wpabuf_len(out_data));
+
+
     return resp;
 
 }
