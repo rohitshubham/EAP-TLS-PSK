@@ -63,7 +63,7 @@ static void * eap_tls_psk_init(struct eap_sm *sm)
 		return NULL;
 	data->state = START;
 
-	if (eap_server_tls_ssl_init(sm, &data->ssl, 1, EAP_TYPE_TLS)) {
+	if (eap_server_tls_ssl_init(sm, &data->ssl, 1, EAP_TYPE_TLS_PSK)) {
 		wpa_printf(MSG_INFO, "EAP-TLS-PSK: Failed to initialize SSL.");
 		eap_tls_reset(sm, data);
 		return NULL;
