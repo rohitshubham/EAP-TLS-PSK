@@ -70,7 +70,6 @@ static void * eap_tls_psk_init(struct eap_sm *sm)
 	}
 
 	data->eap_type = EAP_TYPE_TLS_PSK;
-	wpa_printf(MSG_INFO, "EAP-TLS-PSK: This is working now!.");
 	return data;
 
 }
@@ -112,14 +111,27 @@ static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id
 	return eap_tls_psk_req_build(sm, data, id);
 }
 
-static void eap_tls_psk_check(struct eap_sm *sm, void *priv)
+static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
+			     struct wpabuf *respData)
 {
+	struct eap_tls_psk_data *data = priv;
+	const u8 *pos;
+	size_t len;
+
+	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_type,
+				       respData, &len);
+	if (pos == NULL || len < 1) {
+		wpa_printf(MSG_INFO, "EAP-TLS: Invalid frame");
+		return TRUE;
+	}
+
+	return FALSE;
 }
 
 static void eap_tls_psk_process(struct eap_sm *sm, void *priv)
 {
+	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 }
-
 static void eap_tls_psk_isDone(struct eap_sm *sm, void *priv)
 {
 }
