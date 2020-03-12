@@ -6,6 +6,7 @@
         "limits": "c",
         "memory": "c",
         "new": "c",
-        "eap_tls_common.h": "c"
+        "eap_tls_common.h": "c",
+        "ssl.h": "c"
     }
 }

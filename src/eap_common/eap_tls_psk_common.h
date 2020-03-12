@@ -19,6 +19,13 @@ struct eap_tls_psk_data {
     u8 eap_type;
 };
 
+struct eap_tls_psk_server_data {
+    SSL_CTX *ctx;
+    const u8 *psk;
+    u8 eap_type;
+	enum { START, CONTINUE, SUCCESS, FAILURE } state;
+};
+
 /* Section : common methods */
 static int psk_use_session_cb(SSL *s, const EVP_MD *md,
                               const unsigned char **id, size_t *idlen,
@@ -34,5 +41,9 @@ static void tls_msg_cb(int write_p, int version, int content_type,
 		       const void *buf, size_t len, SSL *ssl, void *arg);
 
 static void set_psk(const u8 *data);
+
+static  const char * eap_tls_state_txt(int state);
+
+static void eap_tls_state(struct eap_tls_psk_server_data *data, int state);
 
 #endif /*endif EAP_TLS_PSK_COMMON */

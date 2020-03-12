@@ -188,3 +188,40 @@ static void set_psk(const u8 *data){
     psk_key = (char*) data;
     wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Setting the psk as: %s", data);
 }
+
+static const char * eap_tls_state_txt(int state)
+{
+	switch (state) {
+	case START:
+		return "START";
+	case CONTINUE:
+		return "CONTINUE";
+	case SUCCESS:
+		return "SUCCESS";
+	case FAILURE:
+		return "FAILURE";
+	default:
+		return "Unknown?!";
+	}
+}
+
+static void eap_tls_state(struct eap_tls_psk_server_data *data, int state)
+{
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: %s -> %s",
+		   eap_tls_state_txt(data->state),
+		   eap_tls_state_txt(state));
+	data->state = state;
+	///if (state == FAILURE)
+		//tls_connection_remove_session(data->ssl.conn);
+		
+}
+
+// void tls_remove_connection(struct eap_tls_psk_server_data *data)
+// {
+// 	SSL_SESSION *sess;
+
+// 	sess = SSL_get_session(data->ssl);
+// 	if (!sess)
+// 		return;
+// 	SSL_CTX_remove_session(conn->ssl_ctx, sess)
+// }
