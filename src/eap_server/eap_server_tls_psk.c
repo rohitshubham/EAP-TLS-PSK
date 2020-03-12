@@ -4,82 +4,45 @@
 #include "eap_i.h"
 #include "eap_tls_common.h"
 #include "crypto/tls.h"
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <eap_common/eap_tls_psk_common.h>
+#include "eap_common/eap_tls_psk_common.c"
 
-
-struct eap_tls_psk_data {
-    struct eap_ssl_data ssl;
-	enum { START, CONTINUE, SUCCESS, FAILURE } state;
-	int established;
-    u8 *psk;
-	u8 eap_type;
-};
-
-// Start Section: Common Methods. ToDo should be refactored
-static void eap_tls_reset(struct eap_sm *sm, void *priv)
-{
-	struct eap_tls_psk_data *data = priv;
-	if (data == NULL)
-		return;
-	eap_server_tls_ssl_deinit(sm, &data->ssl);
-	os_free(data);
-}
-
-static const char * eap_tls_state_txt(int state)
-{
-	switch (state) {
-	case START:
-		return "START";
-	case CONTINUE:
-		return "CONTINUE";
-	case SUCCESS:
-		return "SUCCESS";
-	case FAILURE:
-		return "FAILURE";
-	default:
-		return "Unknown?!";
-	}
-}
-
-
-static void eap_tls_state(struct eap_tls_psk_data *data, int state)
-{
-	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: %s -> %s",
-		   eap_tls_state_txt(data->state),
-		   eap_tls_state_txt(state));
-	data->state = state;
-	if (state == FAILURE)
-		tls_connection_remove_session(data->ssl.conn);
-}
 // End Section: Common Methods.
 
 
 static void * eap_tls_psk_init(struct eap_sm *sm)
 {
-	struct eap_tls_psk_data *data;
+	struct eap_tls_psk_server_data *data;
+	const SSL_METHOD *method = TLS_method();
 
 	data = os_zalloc(sizeof(*data));
 
 	if (data == NULL)
 		return NULL;
+
 	data->state = START;
-
-	if (eap_server_tls_ssl_init(sm, &data->ssl, 1, EAP_TYPE_TLS_PSK)) {
-		wpa_printf(MSG_INFO, "EAP-TLS-PSK: Failed to initialize SSL.");
-		eap_tls_reset(sm, data);
-		return NULL;
-	}
-
 	data->eap_type = EAP_TYPE_TLS_PSK;
-	return data;
 
+	//intialize the ssl ctx object
+    data->ctx = SSL_CTX_new(method);
+    //Set the version to always be 1.3
+    if(SSL_CTX_set_min_proto_version(data->ctx, TLS1_3_VERSION) != 1){
+        wpa_printf(MSG_INFO, "EAP-TLS-PSK: Cannot set TLS 1.3");
+        return NULL;
+    }
+
+	return data;
 }
 
 static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
 {
-	struct eap_tls_psk_data *data = priv;
+	struct eap_tls_psk_server_data *data = priv;
 	if (data == NULL)
 		return;
-	eap_server_tls_ssl_deinit(sm, &data->ssl);
+	SSL_CTX_free(data->ctx);
 	os_free(data);
 }
 
@@ -92,6 +55,7 @@ static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
 	if(req == NULL) 
 	{
 		wpa_printf(MSG_ERROR, "EAP-TLS-PSK: Failed to allocate memory for request");
+		eap_tls_state(data, FAILURE);
 		return NULL;
 	}
 
@@ -130,6 +94,10 @@ static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
 
 static void eap_tls_psk_process(struct eap_sm *sm, void *priv)
 {
+	struct eap_tls_data *data = priv;
+	const struct wpabuf *buf;
+	const u8 *pos;
+	
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 }
 static void eap_tls_psk_isDone(struct eap_sm *sm, void *priv)
