@@ -19,6 +19,18 @@ struct eap_tls_psk_data {
     u8 eap_type;
 };
 
+struct tls_data {
+	SSL_CTX *ssl;
+	unsigned int tls_session_lifetime;
+	int check_crl;
+	int check_crl_strict;
+	char *ca_cert;
+	unsigned int crl_reload_interval;
+	struct os_reltime crl_last_reload;
+	char *check_cert_subject;
+};
+
+
 /* Section : common methods */
 static int psk_use_session_cb(SSL *s, const EVP_MD *md,
                               const unsigned char **id, size_t *idlen,

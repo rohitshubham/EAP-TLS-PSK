@@ -46,7 +46,7 @@ static void * eap_tls_psk_init(struct eap_sm *sm){
     data->psk = eap_get_config_password(sm, &psk_len);
 	set_psk(data->psk);
 
-    if (!data->psk || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
+    if (!psk_key || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
 		wpa_printf(MSG_INFO, "EAP-TLS-PSK: 16-octet pre-shared key not "
 			   "configured");
 		return NULL;

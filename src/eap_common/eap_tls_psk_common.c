@@ -29,11 +29,11 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
         SSL_SESSION_up_ref(psksess);
         usesess = psksess;
     } else {
-        long key_len;
+        long key_len;		
         unsigned char *key = OPENSSL_hexstr2buf(psk_key, &key_len);
 
         if (key == NULL) {
-            wpa_printf(MSG_DEBUG, "Could not convert PSK key '%s' to buffer\n",
+            wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Could not convert PSK key '%s' to buffer\n",
                        psk_key);
             return 0;
         }
@@ -41,7 +41,7 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
         /* We default to SHA-256 */
         cipher = SSL_CIPHER_find(s, tls13_aes128gcmsha256_id);
         if (cipher == NULL) {
-            wpa_printf(MSG_DEBUG, "Error finding suitable ciphersuite\n");
+            wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Error finding suitable ciphersuite\n");
             OPENSSL_free(key);
             return 0;
         }
@@ -185,6 +185,8 @@ static void tls_msg_cb(int write_p, int version, int content_type,
 
 static void set_psk(const u8 *data){
 
+	//temperory fixed psk
+	data = "0533c95c9ecc310ee07cb70a316c45448487c1f70bbea99fe6616f3348305677";
     psk_key = (char*) data;
-    wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Setting the psk as: %s", data);
+    wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Setting the psk as: %s", psk_key);
 }
