@@ -47,11 +47,16 @@ static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
 }
 
 static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
-					   struct eap_tls_psk_data *data, u8 id)
+					   struct eap_tls_psk_server_data *data, u8 id)
 {
 	struct wpabuf *req;
-	req = eap_tls_msg_alloc(data->eap_type, 1, EAP_CODE_REQUEST, id);
+	u8 flags;
+	size_t send_len, plen;
 
+	wpa_printf(MSG_DEBUG, "SSL: Generating Request");
+
+	req = eap_tls_msg_alloc(data->eap_type, 1, EAP_CODE_REQUEST, id);
+	flags = 0;
 	if(req == NULL) 
 	{
 		wpa_printf(MSG_ERROR, "EAP-TLS-PSK: Failed to allocate memory for request");
@@ -69,7 +74,7 @@ static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
 
 static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id)
 {
-	struct eap_tls_psk_data *data = priv;
+	struct eap_tls_psk_server_data *data = priv;
 	struct wpabuf *res;
 
 	return eap_tls_psk_req_build(sm, data, id);
@@ -78,7 +83,7 @@ static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id
 static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
 			     struct wpabuf *respData)
 {
-	struct eap_tls_psk_data *data = priv;
+	struct eap_tls_psk_server_data *data = priv;
 	const u8 *pos;
 	size_t len;
 
@@ -92,14 +97,100 @@ static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
 	return FALSE;
 }
 
-static void eap_tls_psk_process(struct eap_sm *sm, void *priv)
+
+static int eap_server_tls_psk_reassemble(struct eap_tls_psk_server_data *data, u8 flags,
+				     const u8 **pos, size_t *left)
 {
-	struct eap_tls_data *data = priv;
+	unsigned int tls_msg_len = 0;
+	const u8 *end = *pos + *left;
+
+	wpa_hexdump(MSG_MSGDUMP, "SSL: Received data", *pos, *left);
+
+	if (flags & EAP_TLS_FLAGS_LENGTH_INCLUDED) {
+		if (*left < 4) {
+			wpa_printf(MSG_INFO, "SSL: Short frame with TLS "
+				   "length");
+			return -1;
+		}
+		tls_msg_len = WPA_GET_BE32(*pos);
+		wpa_printf(MSG_DEBUG, "SSL: TLS Message Length: %d",
+			   tls_msg_len);
+		*pos += 4;
+		*left -= 4;
+
+		if (*left > tls_msg_len) {
+			wpa_printf(MSG_INFO, "SSL: TLS Message Length (%d "
+				   "bytes) smaller than this fragment (%d "
+				   "bytes)", (int) tls_msg_len, (int) *left);
+			return -1;
+		}
+	}
+
+	wpa_printf(MSG_DEBUG, "SSL: Received packet: Flags 0x%x "
+		   "Message Length %u", flags, tls_msg_len);
+
+	if (data->ssl_state == WAIT_FRAG_ACK) {
+		if (*left != 0) {
+			wpa_printf(MSG_DEBUG, "SSL: Unexpected payload in "
+				   "WAIT_FRAG_ACK state");
+			return -1;
+		}
+		wpa_printf(MSG_DEBUG, "SSL: Fragment acknowledged");
+		return 1;
+	}
+
+	if (data->tls_in &&
+	    eap_server_tls_process_cont(data, *pos, end - *pos) < 0)
+		return -1;
+
+	if (flags & EAP_TLS_FLAGS_MORE_FRAGMENTS) {
+		if (eap_server_tls_process_fragment(data, flags, tls_msg_len,
+						    *pos, end - *pos) < 0)
+			return -1;
+
+		data->state = FRAG_ACK;
+		return 1;
+
+	}
+
+	if (data->state == FRAG_ACK) {
+		wpa_printf(MSG_DEBUG, "SSL: All fragments received");
+		data->state = MSG;
+	}
+
+	if (data->tls_in == NULL) {
+		/* Wrap unfragmented messages as wpabuf without extra copy */
+		wpabuf_set(&data->tmpbuf, *pos, end - *pos);
+		data->tls_in = &data->tmpbuf;
+	}
+
+	return 0;
+}
+
+static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *respData)
+{
+	struct eap_tls_psk_server_data *data = priv;
 	const struct wpabuf *buf;
 	const u8 *pos;
+	size_t len;
+	u8 flags;
 	
+	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_type, respData,
+				       &len);
+	//Refactor this
+	if(pos == NULL || len < 1){
+		
+	}else{
+		flags = *pos++;
+		len--;
+	} 
+
+	wpa_printf(MSG_DEBUG, "SSL: Received packet(len=%lu) - Flags 0x%02x",
+		   (unsigned long) wpabuf_len(respData), flags);
+
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 }
+
 static void eap_tls_psk_isDone(struct eap_sm *sm, void *priv)
 {
 }
