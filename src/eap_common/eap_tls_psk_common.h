@@ -24,6 +24,7 @@ struct eap_tls_psk_server_data {
     const u8 *psk;
     u8 eap_type;
 	enum { START, CONTINUE, SUCCESS, FAILURE } state;
+    enum { MSG, FRAG_ACK, WAIT_FRAG_ACK } ssl_state;
 };
 
 /* Section : common methods */
