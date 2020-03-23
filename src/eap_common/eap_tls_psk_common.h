@@ -26,6 +26,7 @@ struct eap_tls_psk_server_data {
     u8 eap_type;
 	enum { START, CONTINUE, SUCCESS, FAILURE } state;
     enum { MSG, FRAG_ACK, WAIT_FRAG_ACK } ssl_state;
+    struct wpabuf tmpbuf;
 };
 
 /* Section : common methods */
@@ -50,5 +51,6 @@ static void eap_tls_state(struct eap_tls_psk_server_data *data, int state);
 
 static int eap_server_tls_process_cont(struct eap_tls_psk_server_data *data,
 				       const u8 *buf, size_t len);
-                       
+
+static void eap_server_tls_psk_free_in_buf(struct eap_tls_psk_server_data *data);
 #endif /*endif EAP_TLS_PSK_COMMON */

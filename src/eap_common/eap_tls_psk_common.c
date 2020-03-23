@@ -277,6 +277,14 @@ static int eap_server_tls_process_fragment(struct eap_tls_psk_server_data *data,
 
 	return 0;
 }
+
+static void eap_server_tls_psk_free_in_buf(struct eap_tls_psk_server_data *data)
+{
+	if (data->tls_in != &data->tmpbuf)
+		wpabuf_free(data->tls_in);
+	data->tls_in = NULL;
+}
+
 // void tls_remove_connection(struct eap_tls_psk_server_data *data)
 // {
 // 	SSL_SESSION *sess;
