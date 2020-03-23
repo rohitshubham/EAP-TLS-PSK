@@ -174,6 +174,7 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 	const u8 *pos;
 	size_t len;
 	u8 flags;
+	int ret, res = 0;
 	
 	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_type, respData,
 				       &len);
@@ -187,6 +188,14 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 
 	wpa_printf(MSG_DEBUG, "SSL: Received packet(len=%lu) - Flags 0x%02x",
 		   (unsigned long) wpabuf_len(respData), flags);
+	ret = eap_server_tls_reassemble(data, flags, &pos, &len);
+
+	if (ret < 0) {
+		eap_server_tls_psk_free_in_buf(data);
+		eap_tls_state(data, FAILURE);
+		return;
+	} else if (ret == 1)
+		return 0;
 
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 }
