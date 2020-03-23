@@ -21,6 +21,7 @@ struct eap_tls_psk_data {
 
 struct eap_tls_psk_server_data {
     SSL_CTX *ctx;
+    struct wpabuf *tls_in;
     const u8 *psk;
     u8 eap_type;
 	enum { START, CONTINUE, SUCCESS, FAILURE } state;
@@ -47,4 +48,7 @@ static  const char * eap_tls_state_txt(int state);
 
 static void eap_tls_state(struct eap_tls_psk_server_data *data, int state);
 
+static int eap_server_tls_process_cont(struct eap_tls_psk_server_data *data,
+				       const u8 *buf, size_t len);
+                       
 #endif /*endif EAP_TLS_PSK_COMMON */

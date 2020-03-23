@@ -216,6 +216,67 @@ static void eap_tls_state(struct eap_tls_psk_server_data *data, int state)
 		
 }
 
+static int eap_server_tls_process_cont(struct eap_tls_psk_server_data *data,
+				       const u8 *buf, size_t len)
+{
+	/* Process continuation of a pending message */
+	if (len > wpabuf_tailroom(data->tls_in)) {
+		wpa_printf(MSG_DEBUG, "SSL: Fragment overflow");
+		return -1;
+	}
+
+	wpabuf_put_data(data->tls_in, buf, len);
+	wpa_printf(MSG_DEBUG, "SSL: Received %lu bytes, waiting for %lu "
+		   "bytes more", (unsigned long) len,
+		   (unsigned long) wpabuf_tailroom(data->tls_in));
+
+	return 0;
+}
+
+static int eap_server_tls_process_fragment(struct eap_tls_psk_server_data *data,
+					   u8 flags, u32 message_length,
+					   const u8 *buf, size_t len)
+{
+	/* Process a fragment that is not the last one of the message */
+	if (data->tls_in == NULL && !(flags & EAP_TLS_FLAGS_LENGTH_INCLUDED)) {
+		wpa_printf(MSG_DEBUG, "SSL: No Message Length field in a "
+			   "fragmented packet");
+		return -1;
+	}
+
+	if (data->tls_in == NULL) {
+		/* First fragment of the message */
+
+		/* Limit length to avoid rogue peers from causing large
+		 * memory allocations. */
+		if (message_length > 65536) {
+			wpa_printf(MSG_INFO, "SSL: Too long TLS fragment (size"
+				   " over 64 kB)");
+			return -1;
+		}
+
+		if (len > message_length) {
+			wpa_printf(MSG_INFO, "SSL: Too much data (%d bytes) in "
+				   "first fragment of frame (TLS Message "
+				   "Length %d bytes)",
+				   (int) len, (int) message_length);
+			return -1;
+		}
+
+		data->tls_in = wpabuf_alloc(message_length);
+		if (data->tls_in == NULL) {
+			wpa_printf(MSG_DEBUG, "SSL: No memory for message");
+			return -1;
+		}
+		wpabuf_put_data(data->tls_in, buf, len);
+		wpa_printf(MSG_DEBUG, "SSL: Received %lu bytes in first "
+			   "fragment, waiting for %lu bytes more",
+			   (unsigned long) len,
+			   (unsigned long) wpabuf_tailroom(data->tls_in));
+	}
+
+	return 0;
+}
 // void tls_remove_connection(struct eap_tls_psk_server_data *data)
 // {
 // 	SSL_SESSION *sess;
