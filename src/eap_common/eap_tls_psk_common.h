@@ -22,6 +22,7 @@ struct eap_tls_psk_data {
 struct eap_tls_psk_server_data {
     SSL_CTX *ctx;
     struct wpabuf *tls_in;
+    struct wpabuf *tls_out;
     const u8 *psk;
     u8 eap_type;
 	enum { START, CONTINUE, SUCCESS, FAILURE } state;
