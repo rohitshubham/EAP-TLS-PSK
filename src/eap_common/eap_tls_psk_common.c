@@ -17,7 +17,7 @@ const char *psk_key;
 
 
 
-// TLS PSK Session callback . Builds a new 
+// TLS PSK Session callback . Builds a new Session Object 
 static int psk_use_session_cb(SSL *s, const EVP_MD *md,
                               const unsigned char **id, size_t *idlen,
                               SSL_SESSION **sess)
@@ -80,6 +80,54 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
     return 0;
 }
 
+static int psk_find_session_cb(SSL *ssl, const unsigned char *identity,
+                               size_t identity_len, SSL_SESSION **sess){
+    
+	SSL_SESSION *tmpsess = NULL;
+    unsigned char *key;
+    long key_len;
+    const SSL_CIPHER *cipher = NULL;
+
+	if (strlen(psk_identity) != identity_len)
+	{
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: PSK Identity length does not match.");
+	    return 0;
+	}
+
+	if(memcmp(psk_identity, identity, identity_len) != 0)
+	{
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: PSK Identity memory copy failed.");
+	    return 0;
+	}
+
+	key = OPENSSL_hexstr2buf(psk_key, &key_len);
+
+	if (key == NULL) {
+        wpa_printf(MSG_ERROR, "Could not convert PSK key '%s' to buffer\n",
+                   psk_key);
+        return 0;
+    }
+
+	cipher = SSL_CIPHER_find(ssl, tls13_aes128gcmsha256_id);
+    if (cipher == NULL) {
+        wpa_printf(MSG_DEBUG, "Error finding suitable ciphersuite\n");
+        OPENSSL_free(key);
+        return 0;
+    }
+
+    tmpsess = SSL_SESSION_new();
+    if (tmpsess == NULL
+            || !SSL_SESSION_set1_master_key(tmpsess, key, key_len)
+            || !SSL_SESSION_set_cipher(tmpsess, cipher)
+            || !SSL_SESSION_set_protocol_version(tmpsess, SSL_version(ssl))) {
+        OPENSSL_free(key);
+        return 0;
+    }
+    OPENSSL_free(key);
+    *sess = tmpsess;
+
+    return 1;
+}
 
 static const char * openssl_content_type(int content_type)
 {

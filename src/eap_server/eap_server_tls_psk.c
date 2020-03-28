@@ -16,7 +16,7 @@
 static void * eap_tls_psk_init(struct eap_sm *sm)
 {
 	struct eap_tls_psk_server_data *data;
-	const SSL_METHOD *method = TLS_method();
+	const SSL_METHOD *method = TLS_server_method();
 
 	data = os_zalloc(sizeof(*data));
 
@@ -175,7 +175,8 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 	size_t len;
 	u8 flags;
 	int ret, res = 0;
-	
+	SSL *con = NULL;
+
 	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_type, respData,
 				       &len);
 	//Refactor this
@@ -195,9 +196,28 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 		eap_tls_state(data, FAILURE);
 		return;
 	} else if (ret == 1)
-		return 0;
+		{
+			wpa_printf(MSG_INFO, "EAP-TLS-PSK: ret was 1.");
+			return;
+		}
+
+	if (data->state == SUCCESS && wpabuf_len(data->tls_in) == 0) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS: Client acknowledged final TLS "
+			   "handshake message");
+		return;
+	}
+
+	con = SSL_new(data->ctx);
+	SSL_set_msg_callback(con, tls_msg_cb);
+
+	//Find session callback
+	SSL_set_psk_find_session_callback(con, psk_find_session_cb);
 
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
+}
+
+struct wpabuf * tls_connection_server_handshake(struct eap_tls_psk_server_data *data){
+
 }
 
 static void eap_tls_psk_isDone(struct eap_sm *sm, void *priv)
