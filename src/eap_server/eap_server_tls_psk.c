@@ -209,9 +209,62 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 
 	con = SSL_new(data->ctx);
 	SSL_set_msg_callback(con, tls_msg_cb);
-
 	//Find session callback
 	SSL_set_psk_find_session_callback(con, psk_find_session_cb);
+	
+	BIO *ssl_in, *ssl_out;
+
+    ssl_in = BIO_new(BIO_s_mem());
+	if (!ssl_in) {
+		tls_show_errors(MSG_INFO, __func__,
+				"Failed to create a new BIO for ssl_in");
+		SSL_free(con);
+		os_free(data->ctx);
+		return NULL;
+	}
+
+    ssl_out = BIO_new(BIO_s_mem());
+	if (!ssl_out) {
+		tls_show_errors(MSG_INFO, __func__,
+				"Failed to create a new BIO for ssl_out");
+		SSL_free(con);
+		BIO_free(ssl_in);
+		os_free(data->ctx);
+		return NULL;
+	}
+
+    SSL_set_bio(con, ssl_in, ssl_out);
+
+	if (data->tls_in && wpabuf_len(data->tls_in) > 0 &&
+	    BIO_write(ssl_in, wpabuf_head(data->tls_in), wpabuf_len(data->tls_in))
+	    < 0) {
+		tls_show_errors(MSG_INFO, __func__,
+				"Handshake failed - BIO_write");
+		return NULL;
+	}
+
+	res = SSL_accept(con);
+
+	if (res != 1) {
+		int err = SSL_get_error(con, res);
+		if (err == SSL_ERROR_WANT_READ)
+			wpa_printf(MSG_DEBUG, "SSL: SSL_connect - want "
+				   "more data");
+		else if (err == SSL_ERROR_WANT_WRITE)
+			wpa_printf(MSG_DEBUG, "SSL: SSL_connect - want to "
+				   "write");
+		else {
+			tls_show_errors(MSG_INFO, __func__, "SSL_connect");
+		}
+	}
+
+	res = BIO_ctrl_pending(ssl_out);
+    wpa_printf(MSG_DEBUG, "SSL: %d bytes pending from ssl_out", res);
+    data = wpabuf_alloc(res);
+
+    res = res == 0 ? 0 : BIO_read(ssl_out, wpabuf_mhead(data->tls_out),
+				      res);
+
 
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 }
