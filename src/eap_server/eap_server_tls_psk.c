@@ -265,8 +265,13 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
     res = res == 0 ? 0 : BIO_read(ssl_out, wpabuf_mhead(data->tls_out),
 				      res);
 
+	//check tls is established or not and add application data (empty). Perhaprs we need to use the same trick
+
+
+
 
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
+	return;
 }
 
 struct wpabuf * tls_connection_server_handshake(struct eap_tls_psk_server_data *data){
