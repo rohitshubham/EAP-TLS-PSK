@@ -129,7 +129,7 @@ static int eap_server_tls_psk_reassemble(struct eap_tls_psk_server_data *data, u
 	wpa_printf(MSG_DEBUG, "SSL: Received packet: Flags 0x%x "
 		   "Message Length %u", flags, tls_msg_len);
 
-	if (data->ssl_state == WAIT_FRAG_ACK) {
+	if (data->ssl_state == WAIT_FRAG_ACK_1) {
 		if (*left != 0) {
 			wpa_printf(MSG_DEBUG, "SSL: Unexpected payload in "
 				   "WAIT_FRAG_ACK state");
@@ -148,14 +148,14 @@ static int eap_server_tls_psk_reassemble(struct eap_tls_psk_server_data *data, u
 						    *pos, end - *pos) < 0)
 			return -1;
 
-		data->state = FRAG_ACK;
+		data->state = FRAG_ACK_1;
 		return 1;
 
 	}
 
-	if (data->state == FRAG_ACK) {
+	if (data->state == FRAG_ACK_1) {
 		wpa_printf(MSG_DEBUG, "SSL: All fragments received");
-		data->state = MSG;
+		data->state = MSG_1;
 	}
 
 	if (data->tls_in == NULL) {
@@ -189,7 +189,7 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 
 	wpa_printf(MSG_DEBUG, "SSL: Received packet(len=%lu) - Flags 0x%02x",
 		   (unsigned long) wpabuf_len(respData), flags);
-	ret = eap_server_tls_reassemble(data, flags, &pos, &len);
+	ret = eap_server_tls_psk_reassemble(data, flags, &pos, &len);
 
 	if (ret < 0) {
 		eap_server_tls_psk_free_in_buf(data);
@@ -219,8 +219,9 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 		tls_show_errors(MSG_INFO, __func__,
 				"Failed to create a new BIO for ssl_in");
 		SSL_free(con);
+		data->state = FAILURE;
 		os_free(data->ctx);
-		return NULL;
+		return;
 	}
 
     ssl_out = BIO_new(BIO_s_mem());
@@ -230,7 +231,8 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 		SSL_free(con);
 		BIO_free(ssl_in);
 		os_free(data->ctx);
-		return NULL;
+		data->state = FAILURE;
+		return;
 	}
 
     SSL_set_bio(con, ssl_in, ssl_out);
@@ -240,8 +242,10 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 	    < 0) {
 		tls_show_errors(MSG_INFO, __func__,
 				"Handshake failed - BIO_write");
-		return NULL;
+		data->state = FAILURE;
+		return;
 	}
+	wpa_hexdump(MSG_MSGDUMP, "EAP-TLS-PSK: Received TLS In data", wpabuf_head(data->tls_in), wpabuf_len(data->tls_in));
 
 	res = SSL_accept(con);
 
@@ -256,6 +260,8 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 		else {
 			tls_show_errors(MSG_INFO, __func__, "SSL_connect");
 		}
+		data->state = FAILURE;
+		//should we return here?
 	}
 
 	res = BIO_ctrl_pending(ssl_out);
@@ -273,11 +279,11 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
 	return;
 }
-
+/* 
 struct wpabuf * tls_connection_server_handshake(struct eap_tls_psk_server_data *data){
 
 }
-
+ */
 static void eap_tls_psk_isDone(struct eap_sm *sm, void *priv)
 {
 }

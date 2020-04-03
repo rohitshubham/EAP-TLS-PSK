@@ -26,7 +26,9 @@ struct eap_tls_psk_server_data {
     const u8 *psk;
     u8 eap_type;
 	enum { START, CONTINUE, SUCCESS, FAILURE } state;
-    enum { MSG, FRAG_ACK, WAIT_FRAG_ACK } ssl_state;
+    //Avoiding compiler error.. will have to refactor this after the 
+    // struct has been defined
+    enum { MSG_1, FRAG_ACK_1, WAIT_FRAG_ACK_1 } ssl_state;
     struct wpabuf tmpbuf;
 };
 
@@ -54,4 +56,6 @@ static int eap_server_tls_process_cont(struct eap_tls_psk_server_data *data,
 				       const u8 *buf, size_t len);
 
 static void eap_server_tls_psk_free_in_buf(struct eap_tls_psk_server_data *data);
+
+static void tls_show_errors(int level, const char *func, const char *txt);
 #endif /*endif EAP_TLS_PSK_COMMON */

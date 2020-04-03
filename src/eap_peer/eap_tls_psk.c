@@ -12,6 +12,7 @@
 #include <openssl/err.h>
 
 
+<<<<<<< HEAD
 struct eap_tls_psk_data {
 	struct eap_ssl_data ssl;
 	void *ssl_ctx;
@@ -44,6 +45,8 @@ static void eap_tls_psk_deinit(struct eap_sm * sm, void * priv)
 }
 
 
+=======
+>>>>>>> Added code for ssl accept
 /**
  * eap_tls_psk_init :  initialize the eap tls-psk method 
  * @sm : eap statemachine context
