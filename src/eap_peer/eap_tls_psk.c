@@ -14,19 +14,6 @@
 #include <openssl/err.h>
 
 
-static void tls_show_errors(int level, const char *func, const char *txt)
-{
-	unsigned long err;
-
-	wpa_printf(level, "OpenSSL: %s - %s %s",
-		   func, txt, ERR_error_string(ERR_get_error(), NULL));
-
-	while ((err = ERR_get_error())) {
-		wpa_printf(MSG_INFO, "OpenSSL: pending error: %s",
-			   ERR_error_string(err, NULL));
-	}
-}
-
 /**
  * eap_tls_psk_init :  initialize the eap tls-psk method 
  * @sm : eap statemachine context
