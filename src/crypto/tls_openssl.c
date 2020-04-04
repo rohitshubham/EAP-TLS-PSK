@@ -1486,6 +1486,72 @@ static void check_server_key_exchange(SSL *ssl, struct tls_connection *conn,
 #endif /* CONFIG_SUITEB */
 
 
+// TLS PSK Session callback . Builds a new 
+static int psk_use_session_cb(SSL *s, const EVP_MD *md,
+                              const unsigned char **id, size_t *idlen,
+                              SSL_SESSION **sess)
+{
+    SSL_SESSION *usesess = NULL;
+    const SSL_CIPHER *cipher = NULL;
+	//Refactor these three
+
+	const unsigned char tls13_aes128gcmsha256_id[] = { 0x13, 0x01 };
+	static char *psk_identity = "Client_identity";
+	const char *psk_key = "0533c95c9ecc310ee07cb70a316c45448487c1f70bbea99fe6616f3348305677";
+	//temperory fixed psk
+
+
+	long key_len;		
+	unsigned char *key = OPENSSL_hexstr2buf(psk_key, &key_len);
+
+	if (key == NULL) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Could not convert PSK key '%s' to buffer\n",
+					psk_key);
+		return 0;
+	}
+
+	/* We default to SHA-256 */
+	cipher = SSL_CIPHER_find(s, tls13_aes128gcmsha256_id);
+	if (cipher == NULL) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Error finding suitable ciphersuite\n");
+		OPENSSL_free(key);
+		return 0;
+	}
+
+	usesess = SSL_SESSION_new();
+	if (usesess == NULL
+			|| !SSL_SESSION_set1_master_key(usesess, key, key_len)
+			|| !SSL_SESSION_set_cipher(usesess, cipher)
+			|| !SSL_SESSION_set_protocol_version(usesess, TLS1_3_VERSION)) {
+		OPENSSL_free(key);
+		goto err;
+	}
+	OPENSSL_free(key);
+    
+
+    cipher = SSL_SESSION_get0_cipher(usesess);
+    if (cipher == NULL)
+        goto err;
+
+    if (md != NULL && SSL_CIPHER_get_handshake_digest(cipher) != md) {
+        /* PSK not usable, ignore it */
+        *id = NULL;
+        *idlen = 0;
+        *sess = NULL;
+        SSL_SESSION_free(usesess);
+    } else {
+        *sess = usesess;
+        *id = (unsigned char *)psk_identity;
+        *idlen = strlen(psk_identity);
+    }
+
+    return 1;
+
+ err:
+    SSL_SESSION_free(usesess);
+    return 0;
+}
+
 static void tls_msg_cb(int write_p, int version, int content_type,
 		       const void *buf, size_t len, SSL *ssl, void *arg)
 {
@@ -1571,6 +1637,10 @@ struct tls_connection * tls_connection_init(void *ssl_ctx)
 	conn->context = context;
 	SSL_set_app_data(conn->ssl, conn);
 	SSL_set_msg_callback(conn->ssl, tls_msg_cb);
+
+	//ToDo set this only for EAP-TLS-PSK
+	SSL_set_psk_use_session_callback(conn->ssl, psk_use_session_cb);
+	
 	SSL_set_msg_callback_arg(conn->ssl, conn);
 	options = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
 		SSL_OP_SINGLE_DH_USE;

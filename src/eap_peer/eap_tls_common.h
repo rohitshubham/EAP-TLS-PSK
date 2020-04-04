@@ -1,5 +1,5 @@
 /*
- * EAP peer: EAP-TLS/PEAP/TTLS/FAST common functions
+ * EAP peer: EAP-TLS/PEAP/TTLS/FAST/TLS-PSK common functions
  * Copyright (c) 2004-2009, 2012, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
@@ -79,6 +79,11 @@ struct eap_ssl_data {
 	 * tls_v13 - Whether TLS v1.3 or newer is used
 	 */
 	int tls_v13;
+
+	/**
+	 * psk - pre shared key for EAP-TLS-PSK
+	 */
+	const u8 *psk;
 };
 
 
@@ -91,6 +96,7 @@ struct eap_ssl_data {
 
  /* could be up to 128 bytes, but only the first 64 bytes are used */
 #define EAP_TLS_KEY_LEN 64
+#define EAP_TLS_PSK_SHARED_KEY_LEN 16
 
 /* dummy type used as a flag for UNAUTH-TLS */
 #define EAP_UNAUTH_TLS_TYPE 255
@@ -136,5 +142,6 @@ int eap_peer_select_phase2_methods(struct eap_peer_config *config,
 				   size_t *num_types, int use_machine_cred);
 int eap_peer_tls_phase2_nak(struct eap_method_type *types, size_t num_types,
 			    struct eap_hdr *hdr, struct wpabuf **resp);
-
+int eap_peer_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
+			  struct eap_peer_config *config, u8 eap_type);
 #endif /* EAP_TLS_COMMON_H */

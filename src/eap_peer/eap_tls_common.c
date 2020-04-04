@@ -891,7 +891,7 @@ int eap_peer_tls_status(struct eap_sm *sm, struct eap_ssl_data *data,
  * Message Length field. If this is the first fragment of a TLS message, the
  * TLS reassembly code is initialized to receive the indicated number of bytes.
  *
- * EAP-TLS, EAP-PEAP, EAP-TTLS, and EAP-FAST methods are expected to use this
+ * EAP-TLS, EAP-PEAP, EAP-TTLS, EAP-FAST and EAP-TLS-PSK methods are expected to use this
  * function as the first step in processing received messages. They will need
  * to process the flags (apart from Message Length Included) that are returned
  * through the flags pointer and the message payload that will be returned (and
@@ -1204,6 +1204,67 @@ int eap_peer_tls_phase2_nak(struct eap_method_type *types, size_t num_types,
 	}
 
 	eap_update_len(*resp);
+
+	return 0;
+}
+
+
+static int eap_tls_psk_params_from_conf(struct eap_sm *sm,
+				    struct eap_ssl_data *data,
+				    struct tls_connection_params *params,
+				    struct eap_peer_config *config, int phase2){
+
+	params->openssl_ciphers = config->openssl_ciphers;
+	return 0;
+}
+
+static int eap_tls_psk_init_connection(struct eap_sm *sm,
+				   struct eap_ssl_data *data,
+				   struct eap_peer_config *config,
+				   struct tls_connection_params *params)
+{
+
+	data->conn = tls_connection_init(data->ssl_ctx);
+	if (data->conn == NULL) {
+		wpa_printf(MSG_INFO, "SSL: Failed to initialize new TLS "
+			   "connection");
+		return -1;
+	}
+
+	return 0;
+}
+int eap_peer_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
+			  struct eap_peer_config *config, u8 eap_type){
+
+	struct tls_connection_params params;
+
+	data->eap = sm;
+	data->eap_type = eap_type;
+	data->phase2 = sm->init_phase2;
+	data->ssl_ctx = sm->init_phase2 && sm->ssl_ctx2 ? sm->ssl_ctx2 :
+		sm->ssl_ctx;
+
+    size_t psk_len;
+
+	data->psk = eap_get_config_password(sm, &psk_len);
+	//set_psk(data->psk);
+
+    if (!data->psk || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
+		wpa_printf(MSG_INFO, "EAP-TLS-PSK: 16-octet pre-shared key not "
+			   "configured");
+		return -1;
+	}
+	
+	if (eap_tls_psk_params_from_conf(sm, data, &params, config, data->phase2) <
+	    0)
+		return -1;
+
+	if (eap_tls_psk_init_connection(sm, data, config, &params) < 0)
+		return -1;
+
+	data->tls_out_limit = config->fragment_size;
+
+	data->include_tls_length = 1;
 
 	return 0;
 }
