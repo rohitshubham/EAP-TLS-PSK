@@ -2,21 +2,58 @@
 
 #include "common.h"
 #include "eap_i.h"
-#include "eap_tls_common.h"
 #include "crypto/tls.h"
-#include <openssl/ssl.h>
-#include <openssl/bio.h>
-#include <openssl/err.h>
-#include <eap_common/eap_tls_psk_common.h>
-#include "eap_common/eap_tls_psk_common.c"
+#include "eap_tls_common.h"
 
 // End Section: Common Methods.
+
+struct eap_tls_psk_data {
+	struct eap_ssl_data ssl;
+	u8 eap_type;
+	enum { START, CONTINUE, SUCCESS, FAILURE } state;
+	int established;
+	int phase2;	
+};
+
+static const char * eap_tls_state_txt(int state)
+{
+	switch (state) {
+	case START:
+		return "START";
+	case CONTINUE:
+		return "CONTINUE";
+	case SUCCESS:
+		return "SUCCESS";
+	case FAILURE:
+		return "FAILURE";
+	default:
+		return "Unknown?!";
+	}
+}
+
+static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
+{
+	struct eap_tls_psk_data *data = priv;
+	if (data == NULL)
+		return;
+	eap_server_tls_ssl_deinit(sm, &data->ssl);
+	os_free(data);
+}
+
+static void eap_tls_psk_state(struct eap_tls_psk_data *data, int state)
+{
+	wpa_printf(MSG_DEBUG, "EAP-TLS: %s -> %s",
+		   eap_tls_state_txt(data->state),
+		   eap_tls_state_txt(state));
+	data->state = state;
+	if (state == FAILURE)
+		tls_connection_remove_session(data->ssl.conn);
+}
 
 
 static void * eap_tls_psk_init(struct eap_sm *sm)
 {
-	struct eap_tls_psk_server_data *data;
-	const SSL_METHOD *method = TLS_server_method();
+	struct eap_tls_psk_data *data;
 
 	data = os_zalloc(sizeof(*data));
 
@@ -26,41 +63,38 @@ static void * eap_tls_psk_init(struct eap_sm *sm)
 	data->state = START;
 	data->eap_type = EAP_TYPE_TLS_PSK;
 
-	//intialize the ssl ctx object
-    data->ctx = SSL_CTX_new(method);
-    //Set the version to always be 1.3
-    if(SSL_CTX_set_min_proto_version(data->ctx, TLS1_3_VERSION) != 1){
-        wpa_printf(MSG_INFO, "EAP-TLS-PSK: Cannot set TLS 1.3");
-        return NULL;
-    }
+	if (eap_server_tls_psk_ssl_init(sm, &data->ssl, 0, EAP_TYPE_TLS_PSK)) {
+		wpa_printf(MSG_INFO, "EAP-TLS-PSK: Failed to initialize SSL.");
+		eap_tls_psk_reset(sm, data);
+		return NULL;
+	}
+
+	data->phase2 = sm->init_phase2;
 
 	return data;
 }
 
 static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
 {
-	struct eap_tls_psk_server_data *data = priv;
+	struct eap_tls_psk_data *data = priv;
 	if (data == NULL)
 		return;
-	SSL_CTX_free(data->ctx);
+	eap_server_tls_ssl_deinit(sm, &data->ssl);
 	os_free(data);
 }
 
 static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
-					   struct eap_tls_psk_server_data *data, u8 id)
+					   struct eap_tls_psk_data *data, u8 id)
 {
 	struct wpabuf *req;
-	u8 flags;
-	size_t send_len, plen;
 
 	wpa_printf(MSG_DEBUG, "SSL: Generating Request");
 
 	req = eap_tls_msg_alloc(data->eap_type, 1, EAP_CODE_REQUEST, id);
-	flags = 0;
 	if(req == NULL) 
 	{
 		wpa_printf(MSG_ERROR, "EAP-TLS-PSK: Failed to allocate memory for request");
-		eap_tls_state(data, FAILURE);
+		eap_tls_psk_state(data, FAILURE);
 		return NULL;
 	}
 
@@ -74,16 +108,43 @@ static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
 
 static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id)
 {
-	struct eap_tls_psk_server_data *data = priv;
+	struct eap_tls_psk_data *data = priv;
 	struct wpabuf *res;
 
+
+	if (data->ssl.state == FRAG_ACK) {
+		return eap_server_tls_build_ack(id, data->eap_type, 0);
+	}
+
+	//ToDO: Check what's going here
+	if (data->ssl.state == WAIT_FRAG_ACK) {
+		res = eap_server_tls_build_msg(&data->ssl, data->eap_type, 0,
+					       id);
+		//goto check_established;
+	}
+
+	switch (data->state) {
+	case START:
+		return eap_tls_build_start(sm, data, id);
+	case CONTINUE:
+		if (tls_connection_established(sm->cfg->ssl_ctx,
+					       data->ssl.conn))
+			data->established = 1;
+		break;
+	default:
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: %s - unexpected state %d",
+			   __func__, data->state);
+		return NULL;
+	}
+
 	return eap_tls_psk_req_build(sm, data, id);
+
 }
 
 static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
 			     struct wpabuf *respData)
 {
-	struct eap_tls_psk_server_data *data = priv;
+	struct eap_tls_psk_data *data = priv;
 	const u8 *pos;
 	size_t len;
 
@@ -245,8 +306,7 @@ static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *re
 		data->state = FAILURE;
 		return;
 	}
-	wpa_hexdump(MSG_MSGDUMP, "EAP-TLS-PSK: Received TLS In data", wpabuf_head(data->tls_in), wpabuf_len(data->tls_in));
-
+	BIO_printf(ssl_in, "\n");
 	res = SSL_accept(con);
 
 	if (res != 1) {

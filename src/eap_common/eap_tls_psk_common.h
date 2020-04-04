@@ -12,13 +12,6 @@
 
 
 /* Section : data structures */
-struct eap_tls_psk_data {
-    SSL_CTX *ctx;
-    struct tls_connection *conn;
-    const u8 *psk;
-    u8 eap_type;
-};
-
 struct eap_tls_psk_server_data {
     SSL_CTX *ctx;
     struct wpabuf *tls_in;

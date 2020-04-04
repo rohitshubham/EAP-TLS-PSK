@@ -518,3 +518,44 @@ done:
 
 	return res;
 }
+
+
+int eap_server_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
+			    int verify_peer, int eap_type)
+{
+	u8 session_ctx[8];
+	unsigned int flags = sm->cfg->tls_flags;
+
+	if (!sm->cfg->ssl_ctx) {
+		wpa_printf(MSG_ERROR, "TLS context not initialized - cannot use TLS-based EAP method");
+		return -1;
+	}
+
+	data->eap = sm;
+	//data->phase2 = sm->init_phase2;
+
+	data->conn = tls_connection_init(sm->cfg->ssl_ctx);
+	if (data->conn == NULL) {
+		wpa_printf(MSG_INFO, "SSL: Failed to initialize new TLS "
+			   "connection");
+		return -1;
+	}
+
+	os_memcpy(session_ctx, "hostapd", 7);
+	session_ctx[7] = (u8) eap_type;
+
+	if (tls_connection_set_verify(sm->cfg->ssl_ctx, data->conn, verify_peer,
+				      flags, session_ctx,
+				      sizeof(session_ctx))) {
+		wpa_printf(MSG_INFO, "SSL: Failed to configure verification "
+			   "of TLS peer certificate");
+		tls_connection_deinit(sm->cfg->ssl_ctx, data->conn);
+		data->conn = NULL;
+		return -1;
+	}
+
+	data->tls_out_limit = sm->cfg->fragment_size > 0 ?
+		sm->cfg->fragment_size : 1398;
+
+	return 0;
+}
