@@ -55,6 +55,11 @@ struct eap_ssl_data {
 	 * tls_v13 - Whether TLS v1.3 or newer is used
 	 */
 	int tls_v13;
+
+	/**
+	 * psk - pre shared key for EAP-TLS-PSK
+	 */
+	const u8 *psk;
 };
 
 
@@ -97,5 +102,8 @@ int eap_server_tls_process(struct eap_sm *sm, struct eap_ssl_data *data,
 					       int peer_version),
 			   void (*proc_msg)(struct eap_sm *sm, void *priv,
 					    const struct wpabuf *respData));
+						
+int eap_server_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
+			    int verify_peer, int eap_type);
 
 #endif /* EAP_TLS_COMMON_H */
