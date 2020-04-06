@@ -1527,6 +1527,59 @@ static void tls_msg_cb(int write_p, int version, int content_type,
 }
 
 
+static int psk_find_session_cb(SSL *ssl, const unsigned char *identity,
+                               size_t identity_len, SSL_SESSION **sess){
+    
+	SSL_SESSION *tmpsess = NULL;
+    unsigned char *key;
+    long key_len;
+    const SSL_CIPHER *cipher = NULL;
+	static char *psk_identity = "Client_identity";
+ 	const char *psk_key = "0533c95c9ecc310ee07cb70a316c45448487c1f70bbea99fe6616f3348305677";
+	 //temperory fixed psk
+	const unsigned char tls13_aes128gcmsha256_id[] = { 0x13, 0x01 };
+
+	if (strlen(psk_identity) != identity_len)
+	{
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: PSK Identity length does not match.");
+	    return 0;
+	}
+
+	if(memcmp(psk_identity, identity, identity_len) != 0)
+	{
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: PSK Identity memory copy failed.");
+	    return 0;
+	}
+
+	key = OPENSSL_hexstr2buf(psk_key, &key_len);
+
+	if (key == NULL) {
+        wpa_printf(MSG_ERROR, "Could not convert PSK key '%s' to buffer\n",
+                   psk_key);
+        return 0;
+    }
+
+	cipher = SSL_CIPHER_find(ssl, tls13_aes128gcmsha256_id);
+    if (cipher == NULL) {
+        wpa_printf(MSG_DEBUG, "Error finding suitable ciphersuite\n");
+        OPENSSL_free(key);
+        return 0;
+    }
+
+    tmpsess = SSL_SESSION_new();
+    if (tmpsess == NULL
+            || !SSL_SESSION_set1_master_key(tmpsess, key, key_len)
+            || !SSL_SESSION_set_cipher(tmpsess, cipher)
+            || !SSL_SESSION_set_protocol_version(tmpsess, SSL_version(ssl))) {
+        OPENSSL_free(key);
+        return 0;
+    }
+    OPENSSL_free(key);
+    *sess = tmpsess;
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Using external PSK.");
+    return 1;
+}
+
 struct tls_connection * tls_connection_init(void *ssl_ctx)
 {
 	struct tls_data *data = ssl_ctx;
@@ -1571,6 +1624,7 @@ struct tls_connection * tls_connection_init(void *ssl_ctx)
 	conn->context = context;
 	SSL_set_app_data(conn->ssl, conn);
 	SSL_set_msg_callback(conn->ssl, tls_msg_cb);
+	SSL_set_psk_find_session_callback(conn->ssl, psk_find_session_cb);
 	SSL_set_msg_callback_arg(conn->ssl, conn);
 	options = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
 		SSL_OP_SINGLE_DH_USE;
