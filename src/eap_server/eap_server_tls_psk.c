@@ -42,12 +42,26 @@ static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
 
 static void eap_tls_psk_state(struct eap_tls_psk_data *data, int state)
 {
-	wpa_printf(MSG_DEBUG, "EAP-TLS: %s -> %s",
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: %s -> %s",
 		   eap_tls_state_txt(data->state),
 		   eap_tls_state_txt(state));
 	data->state = state;
 	if (state == FAILURE)
 		tls_connection_remove_session(data->ssl.conn);
+}
+
+static void eap_tls_psk_valid_session(struct eap_sm *sm, struct eap_tls_psk_data *data)
+{
+	struct wpabuf *buf;
+
+	if (!sm->cfg->tls_session_lifetime)
+		return;
+
+	buf = wpabuf_alloc(1);
+	if (!buf)
+		return;
+	wpabuf_put_u8(buf, data->eap_type);
+	tls_connection_set_success_data(data->ssl.conn, buf);
 }
 
 
@@ -74,21 +88,11 @@ static void * eap_tls_psk_init(struct eap_sm *sm)
 	return data;
 }
 
-static void eap_tls_psk_reset(struct eap_sm *sm, void *priv)
-{
-	struct eap_tls_psk_data *data = priv;
-	if (data == NULL)
-		return;
-	eap_server_tls_ssl_deinit(sm, &data->ssl);
-	os_free(data);
-}
-
-static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
+static struct wpabuf * eap_tls_psk_build_start(struct eap_sm *sm,
 					   struct eap_tls_psk_data *data, u8 id)
 {
 	struct wpabuf *req;
 
-	wpa_printf(MSG_DEBUG, "SSL: Generating Request");
 
 	req = eap_tls_msg_alloc(data->eap_type, 1, EAP_CODE_REQUEST, id);
 	if(req == NULL) 
@@ -100,7 +104,7 @@ static struct wpabuf * eap_tls_psk_req_build(struct eap_sm *sm,
 
 	wpabuf_put_u8(req, EAP_TLS_FLAGS_START);
 
-	eap_tls_state(data, CONTINUE);
+	eap_tls_psk_state(data, CONTINUE);
 
 	return req;
 
@@ -120,13 +124,13 @@ static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id
 	if (data->ssl.state == WAIT_FRAG_ACK) {
 		res = eap_server_tls_build_msg(&data->ssl, data->eap_type, 0,
 					       id);
-		//goto check_established;
+		goto check_established;
 	}
 
 	switch (data->state) {
 	case START:
-		return eap_tls_build_start(sm, data, id);
-	case CONTINUE:
+		return eap_tls_psk_build_start(sm, data, id);
+	case CONTINUE:		
 		if (tls_connection_established(sm->cfg->ssl_ctx,
 					       data->ssl.conn))
 			data->established = 1;
@@ -136,8 +140,32 @@ static struct wpabuf * eap_tls_psk_buildReq(struct eap_sm *sm, void *priv, u8 id
 			   __func__, data->state);
 		return NULL;
 	}
+	res = eap_server_tls_build_msg(&data->ssl, data->eap_type, 0, id);
 
-	return eap_tls_psk_req_build(sm, data, id);
+check_established:
+	if (data->established && data->ssl.state != WAIT_FRAG_ACK) {
+		/* TLS handshake has been completed and there are no more
+		 * fragments waiting to be sent out. */
+		wpa_printf(MSG_DEBUG, "EAP-TLS: Done");
+		eap_tls_psk_state(data, SUCCESS);
+		eap_tls_psk_valid_session(sm, data);
+		if (sm->serial_num) {
+			char user[128];
+			int user_len;
+
+			user_len = os_snprintf(user, sizeof(user), "cert-%s",
+					       sm->serial_num);
+			if (eap_user_get(sm, (const u8 *) user, user_len,
+					 data->phase2) < 0)
+				wpa_printf(MSG_DEBUG,
+					   "EAP-TLS: No user entry found based on the serial number of the client certificate ");
+			else
+				wpa_printf(MSG_DEBUG,
+					   "EAP-TLS: Updated user entry based on the serial number of the client certificate ");
+		}
+	}
+
+	return res;
 
 }
 
@@ -158,185 +186,97 @@ static Boolean eap_tls_psk_check(struct eap_sm *sm, void *priv,
 	return FALSE;
 }
 
-
-static int eap_server_tls_psk_reassemble(struct eap_tls_psk_server_data *data, u8 flags,
-				     const u8 **pos, size_t *left)
+static void eap_tls_psk_process_msg(struct eap_sm *sm, void *priv,
+				const struct wpabuf *respData)
 {
-	unsigned int tls_msg_len = 0;
-	const u8 *end = *pos + *left;
+	struct eap_tls_psk_data *data = priv;
 
-	wpa_hexdump(MSG_MSGDUMP, "SSL: Received data", *pos, *left);
-
-	if (flags & EAP_TLS_FLAGS_LENGTH_INCLUDED) {
-		if (*left < 4) {
-			wpa_printf(MSG_INFO, "SSL: Short frame with TLS "
-				   "length");
-			return -1;
-		}
-		tls_msg_len = WPA_GET_BE32(*pos);
-		wpa_printf(MSG_DEBUG, "SSL: TLS Message Length: %d",
-			   tls_msg_len);
-		*pos += 4;
-		*left -= 4;
-
-		if (*left > tls_msg_len) {
-			wpa_printf(MSG_INFO, "SSL: TLS Message Length (%d "
-				   "bytes) smaller than this fragment (%d "
-				   "bytes)", (int) tls_msg_len, (int) *left);
-			return -1;
-		}
-	}
-
-	wpa_printf(MSG_DEBUG, "SSL: Received packet: Flags 0x%x "
-		   "Message Length %u", flags, tls_msg_len);
-
-	if (data->ssl_state == WAIT_FRAG_ACK_1) {
-		if (*left != 0) {
-			wpa_printf(MSG_DEBUG, "SSL: Unexpected payload in "
-				   "WAIT_FRAG_ACK state");
-			return -1;
-		}
-		wpa_printf(MSG_DEBUG, "SSL: Fragment acknowledged");
-		return 1;
-	}
-
-	if (data->tls_in &&
-	    eap_server_tls_process_cont(data, *pos, end - *pos) < 0)
-		return -1;
-
-	if (flags & EAP_TLS_FLAGS_MORE_FRAGMENTS) {
-		if (eap_server_tls_process_fragment(data, flags, tls_msg_len,
-						    *pos, end - *pos) < 0)
-			return -1;
-
-		data->state = FRAG_ACK_1;
-		return 1;
-
-	}
-
-	if (data->state == FRAG_ACK_1) {
-		wpa_printf(MSG_DEBUG, "SSL: All fragments received");
-		data->state = MSG_1;
-	}
-
-	if (data->tls_in == NULL) {
-		/* Wrap unfragmented messages as wpabuf without extra copy */
-		wpabuf_set(&data->tmpbuf, *pos, end - *pos);
-		data->tls_in = &data->tmpbuf;
-	}
-
-	return 0;
-}
-
-static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *respData)
-{
-	struct eap_tls_psk_server_data *data = priv;
-	const struct wpabuf *buf;
-	const u8 *pos;
-	size_t len;
-	u8 flags;
-	int ret, res = 0;
-	SSL *con = NULL;
-
-	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_type, respData,
-				       &len);
-	//Refactor this
-	if(pos == NULL || len < 1){
-		
-	}else{
-		flags = *pos++;
-		len--;
-	} 
-
-	wpa_printf(MSG_DEBUG, "SSL: Received packet(len=%lu) - Flags 0x%02x",
-		   (unsigned long) wpabuf_len(respData), flags);
-	ret = eap_server_tls_psk_reassemble(data, flags, &pos, &len);
-
-	if (ret < 0) {
-		eap_server_tls_psk_free_in_buf(data);
-		eap_tls_state(data, FAILURE);
-		return;
-	} else if (ret == 1)
-		{
-			wpa_printf(MSG_INFO, "EAP-TLS-PSK: ret was 1.");
-			return;
-		}
-
-	if (data->state == SUCCESS && wpabuf_len(data->tls_in) == 0) {
+	if (data->state == SUCCESS && wpabuf_len(data->ssl.tls_in) == 0) {
 		wpa_printf(MSG_DEBUG, "EAP-TLS: Client acknowledged final TLS "
 			   "handshake message");
 		return;
 	}
-
-	con = SSL_new(data->ctx);
-	SSL_set_msg_callback(con, tls_msg_cb);
-	//Find session callback
-	SSL_set_psk_find_session_callback(con, psk_find_session_cb);
-	
-	BIO *ssl_in, *ssl_out;
-
-    ssl_in = BIO_new(BIO_s_mem());
-	if (!ssl_in) {
-		tls_show_errors(MSG_INFO, __func__,
-				"Failed to create a new BIO for ssl_in");
-		SSL_free(con);
-		data->state = FAILURE;
-		os_free(data->ctx);
+	if (eap_server_tls_phase1(sm, &data->ssl) < 0) {
+		eap_tls_psk_state(data, FAILURE);
 		return;
 	}
 
-    ssl_out = BIO_new(BIO_s_mem());
-	if (!ssl_out) {
-		tls_show_errors(MSG_INFO, __func__,
-				"Failed to create a new BIO for ssl_out");
-		SSL_free(con);
-		BIO_free(ssl_in);
-		os_free(data->ctx);
-		data->state = FAILURE;
-		return;
-	}
+	if (data->ssl.tls_v13 &&
+	    tls_connection_established(sm->cfg->ssl_ctx, data->ssl.conn)) {
+		struct wpabuf *plain, *encr;
 
-    SSL_set_bio(con, ssl_in, ssl_out);
-
-	if (data->tls_in && wpabuf_len(data->tls_in) > 0 &&
-	    BIO_write(ssl_in, wpabuf_head(data->tls_in), wpabuf_len(data->tls_in))
-	    < 0) {
-		tls_show_errors(MSG_INFO, __func__,
-				"Handshake failed - BIO_write");
-		data->state = FAILURE;
-		return;
-	}
-	BIO_printf(ssl_in, "\n");
-	res = SSL_accept(con);
-
-	if (res != 1) {
-		int err = SSL_get_error(con, res);
-		if (err == SSL_ERROR_WANT_READ)
-			wpa_printf(MSG_DEBUG, "SSL: SSL_connect - want "
-				   "more data");
-		else if (err == SSL_ERROR_WANT_WRITE)
-			wpa_printf(MSG_DEBUG, "SSL: SSL_connect - want to "
-				   "write");
-		else {
-			tls_show_errors(MSG_INFO, __func__, "SSL_connect");
+		wpa_printf(MSG_DEBUG,
+			   "EAP-TLS: Send empty application data to indicate end of exchange");
+		/* FIX: This should be an empty application data based on
+		 * draft-ietf-emu-eap-tls13-05, but OpenSSL does not allow zero
+		 * length payload (SSL_write() documentation explicitly
+		 * describes this as not allowed), so work around that for now
+		 * by sending out a payload of one octet. Hopefully the draft
+		 * specification will change to allow this so that no crypto
+		 * library changes are needed. */
+		plain = wpabuf_alloc(1);
+		if (!plain)
+			return;
+		wpabuf_put_u8(plain, 0);
+		encr = eap_server_tls_encrypt(sm, &data->ssl, plain);
+		wpabuf_free(plain);
+		if (!encr)
+			return;
+		if (wpabuf_resize(&data->ssl.tls_out, wpabuf_len(encr)) < 0) {
+			wpa_printf(MSG_INFO,
+				   "EAP-TLS: Failed to resize output buffer");
+			wpabuf_free(encr);
+			return;
 		}
-		data->state = FAILURE;
-		//should we return here?
+		wpabuf_put_buf(data->ssl.tls_out, encr);
+		wpa_hexdump_buf(MSG_DEBUG,
+				"EAP-TLS: Data appended to the message", encr);
+		wpabuf_free(encr);
 	}
 
-	res = BIO_ctrl_pending(ssl_out);
-    wpa_printf(MSG_DEBUG, "SSL: %d bytes pending from ssl_out", res);
-    data = wpabuf_alloc(res);
+}
 
-    res = res == 0 ? 0 : BIO_read(ssl_out, wpabuf_mhead(data->tls_out),
-				      res);
+static void eap_tls_psk_process(struct eap_sm *sm, void *priv, struct wpabuf *respData)
+{
+	struct eap_tls_psk_data *data = priv;
+	const struct wpabuf *buf;
+	const u8 *pos;
 
-	//check tls is established or not and add application data (empty). Perhaprs we need to use the same trick
+	if (eap_server_tls_process(sm, &data->ssl, respData, data,
+				   data->eap_type, NULL, eap_tls_psk_process_msg) <
+	    0) {
+		eap_tls_psk_state(data, FAILURE);
+		return;
+	}
 
-
-
-
+	if (!tls_connection_established(sm->cfg->ssl_ctx, data->ssl.conn) ||
+	    !tls_connection_resumed(sm->cfg->ssl_ctx, data->ssl.conn))
+			return;
+	
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: We are coming here.");
+
+	buf = tls_connection_get_success_data(data->ssl.conn);
+	if (!buf || wpabuf_len(buf) < 1) {
+		wpa_printf(MSG_DEBUG,
+			   "EAP-TLS: No success data in resumed session - reject attempt");
+		eap_tls_psk_state(data, FAILURE);
+		return;
+	}
+
+	pos = wpabuf_head(buf);
+	if (*pos != data->eap_type) {
+		wpa_printf(MSG_DEBUG,
+			   "EAP-TLS: Resumed session for another EAP type (%u) - reject attempt",
+			   *pos);
+		eap_tls_psk_state(data, FAILURE);
+		return;
+	}
+
+	wpa_printf(MSG_DEBUG,
+		   "EAP-TLS: Resuming previous session");
+	eap_tls_psk_state(data, SUCCESS);
+	tls_connection_set_success_data_resumed(data->ssl.conn);
+
 	return;
 }
 /* 

@@ -69,6 +69,7 @@
 #"ttls"		TTLS
 #"not anonymous"	PEAP
 
+#"rohit"		TLS  
 *	TLS_PSK
 
 # Default to EAP-SIM and EAP-AKA based on fixed identity prefixes
