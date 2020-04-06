@@ -1513,7 +1513,7 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
 	/* We default to SHA-256 */
 	cipher = SSL_CIPHER_find(s, tls13_aes128gcmsha256_id);
 	if (cipher == NULL) {
-		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Error finding suitable ciphersuite\n");
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Error finding suitable ciphersuite");
 		OPENSSL_free(key);
 		return 0;
 	}
@@ -1543,6 +1543,7 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
         *sess = usesess;
         *id = (unsigned char *)psk_identity;
         *idlen = strlen(psk_identity);
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Successfully set TLS session using external PSK");
     }
 
     return 1;

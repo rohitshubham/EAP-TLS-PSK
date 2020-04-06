@@ -17,7 +17,9 @@ struct eap_tls_psk_data {
 	void *ssl_ctx;
 	struct wpabuf *pending_resp;
 	u8 *session_id;
-	u8 eap_type;	
+	u8 eap_type;
+	u8 *key_data;
+	size_t id_len;	
 };
 
 static void eap_tls_psk_deinit(struct eap_sm * sm, void * priv){
@@ -95,6 +97,12 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 		return NULL;
 
 	id = eap_get_id(reqData);
+	
+	if (flags & EAP_TLS_FLAGS_START) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Start");
+		left = 0; /* make sure that this frame is empty, even though it
+			   * should always be, anyway */
+	}
 	wpa_printf(MSG_INFO, "EAP-TLS-PSK: Starting authentication");
 
 
@@ -106,37 +114,60 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 
 	if (res < 0) {
 		return eap_tls_psk_failure(sm, data, ret, res, resp, id);
+	}	
+
+	if (res == 2) {
+		/* Application data included in the handshake message (used by
+		 * EAP-TLS 1.3 to indicate conclusion of the exchange). */
+		wpa_hexdump_buf(MSG_DEBUG, "EAP-TLS: Received Application Data",
+				resp);
+		wpa_hexdump_buf(MSG_DEBUG, "EAP-TLS: Remaining tls_out data",
+				data->ssl.tls_out);
+		eap_peer_tls_reset_output(&data->ssl);
+		/* Send an ACK to allow the server to complete exchange */
+		res = 1;
 	}
-	wpa_printf(MSG_DEBUG, "EAP_TLS_PSK: %d", res);
+	
+/* 
+	if (tls_connection_established(data->ssl_ctx, data->ssl.conn))
+		eap_tls_success(sm, data, ret);
+ */
+	if (res == 1) {
+		wpabuf_free(resp);
+		return eap_peer_tls_build_ack(id, data->eap_type, 0);
+	}
+
+
 	return resp;
 }
 
 static Boolean eap_tls_psk_isKeyAvailable(struct eap_sm * sm, void * priv){
-
+	
+	return FALSE;
 }
 
 static u8 * eap_tls_psk_getKey(struct eap_sm * sm, void * priv){
-	
+	return NULL;
 }
 
 static u8 * eap_tls_psk_get_emsk(struct eap_sm * sm, void * priv){
-
+	return NULL;
 }
 
 static u8 * eap_tls_psk_get_session_id(struct eap_sm * sm, void * priv){
-
+	return NULL;
 }
 
 static Boolean eap_tls_psk_has_reauth_data(struct eap_sm * sm, void * priv){
-	
+	return FALSE;
 }
 
 static void * eap_tls_psk_init_for_reauth(struct eap_sm * sm, void * priv){
-
+	return NULL;
 }
 
 static void eap_tls_psk_deinit_for_reauth(struct eap_sm * sm, void * priv){
-
+	return;
 }
 
 int eap_peer_tls_psk_register(void){
