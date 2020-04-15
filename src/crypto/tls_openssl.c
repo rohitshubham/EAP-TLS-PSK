@@ -219,7 +219,6 @@ struct tls_context {
 
 static struct tls_context *tls_global = NULL;
 
-
 struct tls_data {
 	SSL_CTX *ssl;
 	unsigned int tls_session_lifetime;
