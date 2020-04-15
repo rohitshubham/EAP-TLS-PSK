@@ -348,6 +348,7 @@ int eap_server_tls_phase1(struct eap_sm *sm, struct eap_ssl_data *data)
 		wpa_printf(MSG_INFO, "SSL: TLS processing failed");
 		return -1;
 	}
+	
 	if (tls_connection_get_failed(sm->cfg->ssl_ctx, data->conn)) {
 		/* TLS processing has failed - return error */
 		wpa_printf(MSG_DEBUG, "SSL: Failed - tls_out available to "
@@ -532,7 +533,6 @@ int eap_server_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
 	}
 
 	data->eap = sm;
-	//data->phase2 = sm->init_phase2;
 
 	data->conn = tls_connection_init(sm->cfg->ssl_ctx);
 	if (data->conn == NULL) {

@@ -217,7 +217,6 @@ struct tls_context {
 
 static struct tls_context *tls_global = NULL;
 
-
 struct tls_data {
 	SSL_CTX *ssl;
 	unsigned int tls_session_lifetime;
@@ -232,6 +231,7 @@ struct tls_data {
 struct tls_connection {
 	struct tls_context *context;
 	struct tls_data *data;
+	
 	SSL_CTX *ssl_ctx;
 	SSL *ssl;
 	BIO *ssl_in, *ssl_out;
