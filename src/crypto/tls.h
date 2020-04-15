@@ -215,6 +215,8 @@ struct tls_connection_params {
 	const char *ocsp_stapling_response;
 	const char *ocsp_stapling_response_multi;
 	const char *check_cert_subject;
+	u8 *psk;
+	u8 *identity;
 };
 
 
@@ -324,6 +326,10 @@ enum {
 int __must_check
 tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			  const struct tls_connection_params *params);
+
+int __must_check
+tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
+			      const struct tls_connection_params *params);
 
 /**
  * tls_global_set_params - Set TLS parameters for all TLS connection

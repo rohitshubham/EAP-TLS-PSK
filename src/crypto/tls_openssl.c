@@ -229,9 +229,16 @@ struct tls_data {
 	char *check_cert_subject;
 };
 
+struct tls_psk_data {
+	char *psk_identity;
+	char *psk_key;
+	char cipher[];
+};
+
 struct tls_connection {
 	struct tls_context *context;
 	struct tls_data *data;
+	struct tls_psk_data *psk_data;
 	SSL_CTX *ssl_ctx;
 	SSL *ssl;
 	BIO *ssl_in, *ssl_out;
@@ -5049,6 +5056,27 @@ static int is_tpm2_key(const char *path)
 	return match_lines_in_file(path, tpm2_tags);
 }
 
+int tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
+			      const struct tls_connection_params *params)
+{
+	SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+
+	struct tls_psk_data *temp_psk_data;
+	temp_psk_data = os_zalloc(sizeof(*temp_psk_data));
+	if(temp_psk_data == NULL)
+	{
+		return -1;
+	}	
+
+	temp_psk_data->psk_key = (char *) params->psk;
+	temp_psk_data->psk_identity = (char *) params->identity;
+
+	conn->psk_data = temp_psk_data;
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: The psk is %s ", conn->psk_data->psk_key);
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: The identity is %s ", conn->psk_data->psk_identity);
+
+	return 0;
+}
 
 int tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			      const struct tls_connection_params *params)

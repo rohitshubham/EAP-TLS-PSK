@@ -1212,9 +1212,11 @@ int eap_peer_tls_phase2_nak(struct eap_method_type *types, size_t num_types,
 static int eap_tls_psk_params_from_conf(struct eap_sm *sm,
 				    struct eap_ssl_data *data,
 				    struct tls_connection_params *params,
-				    struct eap_peer_config *config, int phase2){
-
+				    struct eap_peer_config *config, int phase2)
+{
 	params->openssl_ciphers = config->openssl_ciphers;
+	params->psk = config->password;
+	params->identity = config->identity;
 	return 0;
 }
 
@@ -1223,11 +1225,19 @@ static int eap_tls_psk_init_connection(struct eap_sm *sm,
 				   struct eap_peer_config *config,
 				   struct tls_connection_params *params)
 {
-
+	int res;
 	data->conn = tls_connection_init(data->ssl_ctx);
 	if (data->conn == NULL) {
 		wpa_printf(MSG_INFO, "SSL: Failed to initialize new TLS "
 			   "connection");
+		return -1;
+	}
+	res = tls_psk_connection_set_params(data->ssl_ctx, data->conn, params);
+	if (res) {
+		wpa_printf(MSG_INFO, "TLS: Failed to set TLS connection "
+			   "parameters");
+		tls_connection_deinit(data->ssl_ctx, data->conn);
+		data->conn = NULL;
 		return -1;
 	}
 
@@ -1246,14 +1256,11 @@ int eap_peer_tls_psk_ssl_init(struct eap_sm *sm, struct eap_ssl_data *data,
 
     size_t psk_len;
 
-	data->psk = eap_get_config_password(sm, &psk_len);
-	//set_psk(data->psk);
-
-    if (!data->psk || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
+    /* if (!data->psk || psk_len != EAP_TLS_PSK_SHARED_KEY_LEN) {
 		wpa_printf(MSG_INFO, "EAP-TLS-PSK: 16-octet pre-shared key not "
 			   "configured");
 		return -1;
-	}
+	} */
 	
 	if (eap_tls_psk_params_from_conf(sm, data, &params, config, data->phase2) <
 	    0)
