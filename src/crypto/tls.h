@@ -200,6 +200,8 @@ struct tls_connection_params {
 	const char *dh_file;
 	const u8 *dh_blob;
 	size_t dh_blob_len;
+	u8 *psk;
+	u8 *identity;
 
 	/* OpenSSL specific variables */
 	int engine;
@@ -215,8 +217,6 @@ struct tls_connection_params {
 	const char *ocsp_stapling_response;
 	const char *ocsp_stapling_response_multi;
 	const char *check_cert_subject;
-	u8 *psk;
-	u8 *identity;
 };
 
 

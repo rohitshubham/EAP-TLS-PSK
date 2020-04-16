@@ -50,6 +50,8 @@
 #define EAP_FAST_OR_TEAP
 #endif
 
+//We can fix this value 
+#define TLS_PSK_SSL_IDX 0
 
 #if defined(OPENSSL_IS_BORINGSSL)
 /* stack_index_t is the return type of OpenSSL's sk_XXX_num() functions. */
@@ -230,9 +232,9 @@ struct tls_data {
 };
 
 struct tls_psk_data {
-	char *psk_identity;
+	const char *psk_identity;
 	char *psk_key;
-	char cipher[];
+	unsigned char cipher[];
 };
 
 struct tls_connection {
@@ -1500,12 +1502,16 @@ static int psk_use_session_cb(SSL *s, const EVP_MD *md,
 {
     SSL_SESSION *usesess = NULL;
     const SSL_CIPHER *cipher = NULL;
-	//Refactor these three
+	struct tls_psk_data *temp_psk_data;
 
+	temp_psk_data = SSL_get_ex_data(s, TLS_PSK_SSL_IDX);
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Using Preshared Key: %s ", temp_psk_data->psk_key);
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Using Identity: %s ", temp_psk_data->psk_identity);
+
+	//ToDO decide on how to handle Cipher suite
 	const unsigned char tls13_aes128gcmsha256_id[] = { 0x13, 0x01 };
-	static char *psk_identity = "Client_identity";
-	const char *psk_key = "0533c95c9ecc310ee07cb70a316c45448487c1f70bbea99fe6616f3348305677";
-	//temperory fixed psk
+	const char *psk_identity = temp_psk_data->psk_identity;
+	const char *psk_key = temp_psk_data->psk_key;
 
 
 	long key_len;		
@@ -5059,6 +5065,7 @@ static int is_tpm2_key(const char *path)
 int tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			      const struct tls_connection_params *params)
 {
+	//Sets the SSL object to ignore the result of verification of server certificates in client mode  
 	SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
 
 	struct tls_psk_data *temp_psk_data;
@@ -5071,10 +5078,13 @@ int tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 	temp_psk_data->psk_key = (char *) params->psk;
 	temp_psk_data->psk_identity = (char *) params->identity;
 
+	//Not necessarily require at the moment. Setting this value for completeness
 	conn->psk_data = temp_psk_data;
-	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: The psk is %s ", conn->psk_data->psk_key);
-	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: The identity is %s ", conn->psk_data->psk_identity);
 
+	int res = SSL_set_ex_data(conn->ssl, TLS_PSK_SSL_IDX, temp_psk_data);
+	if (res == 0)
+		return -1;
+	
 	return 0;
 }
 
