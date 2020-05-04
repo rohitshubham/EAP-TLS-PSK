@@ -83,7 +83,6 @@ static void * eap_tls_psk_init(struct eap_sm *sm)
 		eap_tls_psk_reset(sm, data);
 		return NULL;
 	}
-
 	data->phase2 = sm->init_phase2;
 
 	return data;
