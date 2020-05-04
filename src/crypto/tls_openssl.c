@@ -50,6 +50,8 @@
 #define EAP_FAST_OR_TEAP
 #endif
 
+//We can fix this value 
+#define TLS_PSK_SSL_IDX 0
 
 #if defined(OPENSSL_IS_BORINGSSL)
 /* stack_index_t is the return type of OpenSSL's sk_XXX_num() functions. */
@@ -229,9 +231,16 @@ struct tls_data {
 	char *check_cert_subject;
 };
 
+struct tls_psk_data {
+	const char *psk_identity;
+	char *psk_key;
+	unsigned char cipher[];
+};
+
 struct tls_connection {
 	struct tls_context *context;
 	struct tls_data *data;
+	struct tls_psk_data *psk_data;
 	SSL_CTX *ssl_ctx;
 	SSL *ssl;
 	BIO *ssl_in, *ssl_out;
@@ -1486,6 +1495,77 @@ static void check_server_key_exchange(SSL *ssl, struct tls_connection *conn,
 #endif /* CONFIG_SUITEB */
 
 
+// TLS PSK Session callback . Builds a new 
+static int psk_use_session_cb(SSL *s, const EVP_MD *md,
+                              const unsigned char **id, size_t *idlen,
+                              SSL_SESSION **sess)
+{
+    SSL_SESSION *usesess = NULL;
+    const SSL_CIPHER *cipher = NULL;
+	struct tls_psk_data *temp_psk_data;
+
+	temp_psk_data = SSL_get_ex_data(s, TLS_PSK_SSL_IDX);
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Using Preshared Key: %s ", temp_psk_data->psk_key);
+	wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Using Identity: %s ", temp_psk_data->psk_identity);
+
+	//ToDO decide on how to handle Cipher suite
+	const unsigned char tls13_aes128gcmsha256_id[] = { 0x13, 0x01 };
+	const char *psk_identity = temp_psk_data->psk_identity;
+	const char *psk_key = temp_psk_data->psk_key;
+
+
+	long key_len;		
+	unsigned char *key = OPENSSL_hexstr2buf(psk_key, &key_len);
+
+	if (key == NULL) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Could not convert PSK key '%s' to buffer\n",
+					psk_key);
+		return 0;
+	}
+
+	/* We default to SHA-256 */
+	cipher = SSL_CIPHER_find(s, tls13_aes128gcmsha256_id);
+	if (cipher == NULL) {
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Error finding suitable ciphersuite");
+		OPENSSL_free(key);
+		return 0;
+	}
+
+	usesess = SSL_SESSION_new();
+	if (usesess == NULL
+			|| !SSL_SESSION_set1_master_key(usesess, key, key_len)
+			|| !SSL_SESSION_set_cipher(usesess, cipher)
+			|| !SSL_SESSION_set_protocol_version(usesess, TLS1_3_VERSION)) {
+		OPENSSL_free(key);
+		goto err;
+	}
+	OPENSSL_free(key);
+    
+
+    cipher = SSL_SESSION_get0_cipher(usesess);
+    if (cipher == NULL)
+        goto err;
+
+    if (md != NULL && SSL_CIPHER_get_handshake_digest(cipher) != md) {
+        /* PSK not usable, ignore it */
+        *id = NULL;
+        *idlen = 0;
+        *sess = NULL;
+        SSL_SESSION_free(usesess);
+    } else {
+        *sess = usesess;
+        *id = (unsigned char *)psk_identity;
+        *idlen = strlen(psk_identity);
+		wpa_printf(MSG_DEBUG, "EAP-TLS-PSK: Successfully set TLS session using external PSK");
+    }
+
+    return 1;
+
+ err:
+    SSL_SESSION_free(usesess);
+    return 0;
+}
+
 static void tls_msg_cb(int write_p, int version, int content_type,
 		       const void *buf, size_t len, SSL *ssl, void *arg)
 {
@@ -1571,6 +1651,10 @@ struct tls_connection * tls_connection_init(void *ssl_ctx)
 	conn->context = context;
 	SSL_set_app_data(conn->ssl, conn);
 	SSL_set_msg_callback(conn->ssl, tls_msg_cb);
+
+	//ToDo set this only for EAP-TLS-PSK
+	SSL_set_psk_use_session_callback(conn->ssl, psk_use_session_cb);
+	
 	SSL_set_msg_callback_arg(conn->ssl, conn);
 	options = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
 		SSL_OP_SINGLE_DH_USE;
@@ -4978,6 +5062,30 @@ static int is_tpm2_key(const char *path)
 	return match_lines_in_file(path, tpm2_tags);
 }
 
+int tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
+			      const struct tls_connection_params *params)
+{
+	SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+
+	struct tls_psk_data *temp_psk_data;
+	temp_psk_data = os_zalloc(sizeof(*temp_psk_data));
+	if(temp_psk_data == NULL)
+	{
+		return -1;
+	}	
+
+	temp_psk_data->psk_key = (char *) params->psk;
+	temp_psk_data->psk_identity = (char *) params->identity;
+
+	//Not necessarily require at the moment. Setting this value for completeness
+	conn->psk_data = temp_psk_data;
+
+	int res = SSL_set_ex_data(conn->ssl, TLS_PSK_SSL_IDX, temp_psk_data);
+	if (res == 0)
+		return -1;
+	
+	return 0;
+}
 
 int tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			      const struct tls_connection_params *params)

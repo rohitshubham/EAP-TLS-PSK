@@ -200,6 +200,8 @@ struct tls_connection_params {
 	const char *dh_file;
 	const u8 *dh_blob;
 	size_t dh_blob_len;
+	u8 *psk;
+	u8 *identity;
 
 	/* OpenSSL specific variables */
 	int engine;
@@ -324,6 +326,10 @@ enum {
 int __must_check
 tls_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			  const struct tls_connection_params *params);
+
+int __must_check
+tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
+			      const struct tls_connection_params *params);
 
 /**
  * tls_global_set_params - Set TLS parameters for all TLS connection
