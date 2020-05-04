@@ -5065,8 +5065,7 @@ static int is_tpm2_key(const char *path)
 int tls_psk_connection_set_params(void *tls_ctx, struct tls_connection *conn,
 			      const struct tls_connection_params *params)
 {
-	//Sets the SSL object to ignore the result of verification of server certificates in client mode  
-	SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+	SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
 
 	struct tls_psk_data *temp_psk_data;
 	temp_psk_data = os_zalloc(sizeof(*temp_psk_data));

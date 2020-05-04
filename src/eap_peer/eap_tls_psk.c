@@ -204,8 +204,6 @@ static struct wpabuf * eap_tls_psk_process(struct eap_sm * sm, void * priv, stru
 		wpabuf_free(resp);
 		return eap_peer_tls_build_ack(id, data->eap_type, 0);
 	}
-
-
 	return resp;
 }
 
